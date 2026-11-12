@@ -1,9 +1,15 @@
+import com.sun.source.tree.ClassTree;
+import com.sun.source.tree.MethodTree;
+import com.sun.source.tree.Tree;
+import com.sun.source.util.JavacTask;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
+import java.awt.FlowLayout;
+import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -14,15 +20,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.BorderFactory;
+import javax.swing.AbstractAction;
 import javax.swing.DefaultListCellRenderer;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JFrame;
+import javax.swing.JEditorPane;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JOptionPane;
@@ -31,10 +46,14 @@ import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.JTabbedPane;
+import javax.swing.JTree;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.KeyStroke;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
 import javax.tools.Diagnostic;
 import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
@@ -54,7 +73,7 @@ public class App {
     private static final Lesson[] LESSONS = createLessons();
 
     private static Lesson[] createLessons() {
-        return new Lesson[] {
+        Lesson[] lessons = new Lesson[] {
             lesson("Tu primer programa",
                 "Java ejecuta instrucciones dentro del método main. La clase organiza el código y println escribe una línea. Las llaves delimitan bloques y cada instrucción suele terminar en punto y coma.",
                 """
@@ -73,6 +92,46 @@ public class App {
                 """,
                 "¿Qué instrucción imprime una línea?", 2, "println imprime texto y termina la línea.", 0,
                 "System.out.println()", "Scanner.next()", "System.in.read()"),
+            lesson("UML: leer diagramas de clases",
+                "UML es un lenguaje visual para planear y explicar cómo se relacionan las clases antes de escribir código. Cada rectángulo puede dividirse en nombre, atributos y operaciones. La flecha punteada con triángulo representa una clase que implementa una interfaz.",
+                """
+                +----------------------+       +----------------------+
+                | <<interface>>        |       | Perro                |
+                | Sonido               |< - - -|                      |
+                +----------------------+       +----------------------+
+                | + emitir(): String   |       | + emitir(): String   |
+                +----------------------+       +----------------------+
+                         contrato                 implementa
+                """,
+                """
+                public class AppStudent {
+                    interface Sonido {
+                        String emitir();
+                    }
+
+                    static class Perro implements Sonido {
+                        public String emitir() {
+                            return "Guau";
+                        }
+                    }
+
+                    public static void main(String[] args) {
+                        String diagrama = String.join(System.lineSeparator(),
+                                "<<interface>> Sonido",
+                                "+ emitir(): String",
+                                "        ^",
+                                "        | implements",
+                                "Perro",
+                                "+ emitir(): String");
+                        System.out.println(diagrama);
+                        Sonido sonido = new Perro();
+                        System.out.println("El objeto responde: " + sonido.emitir());
+                    }
+                }
+                """,
+                "En UML, ¿qué muestra <<interface>>?", 1,
+                "Que el rectángulo representa una interfaz, es decir, un contrato.",
+                16, "Una interfaz", "Un objeto", "Un paquete"),
             lesson("Tipos y variables",
                 "int, long, double y boolean son tipos primitivos. String y otros objetos son tipos de referencia. Una variable tiene un tipo, un nombre y un valor; el compilador detecta asignaciones incompatibles.",
                 """
@@ -1055,15 +1114,53 @@ public class App {
                 "¿Qué no debes incluir en los logs?", 2, "No registres credenciales ni datos sensibles.", 4,
                 "El inicio de la aplicación", "Contraseñas y tokens", "Mensajes de diagnóstico"),
         };
+        return arrangeObjectOrientedLessons(lessons);
+    }
+
+    private static Lesson[] arrangeObjectOrientedLessons(Lesson[] lessons) {
+        List<Lesson> arranged = new ArrayList<>();
+        List<String> movedAfterClasses = List.of(
+                "UML: leer diagramas de clases",
+                "Interfaces y abstracción",
+                "Herencia",
+                "Polimorfismo");
+        for (Lesson lesson : lessons) {
+            if (movedAfterClasses.contains(lesson.title)) {
+                continue;
+            }
+            arranged.add(lesson);
+            if (lesson.title.equals("Tu primer programa")) {
+                arranged.add(findLesson(lessons, "UML: leer diagramas de clases"));
+            } else if (lesson.title.equals("Clases y objetos")) {
+                arranged.add(findLesson(lessons, "Interfaces y abstracción"));
+                arranged.add(findLesson(lessons, "Herencia"));
+                arranged.add(findLesson(lessons, "Polimorfismo"));
+            }
+        }
+        return arranged.toArray(Lesson[]::new);
+    }
+
+    private static Lesson findLesson(Lesson[] lessons, String title) {
+        for (Lesson lesson : lessons) {
+            if (lesson.title.equals(title)) {
+                return lesson;
+            }
+        }
+        throw new IllegalArgumentException("No existe el tema: " + title);
     }
 
     private static String buildGuide(String title) {
-        return switch (title) {
+        String basicGuide = switch (title) {
             case "Tu primer programa" -> guide(
                     "Es el esqueleto mínimo que la JVM necesita para iniciar una aplicación.",
                     "class Nombre { public static void main(String[] args) { /* instrucciones */ } }",
                     "public crea una clase accesible; static permite llamar main sin crear un objeto; void indica que no devuelve un resultado. Las llaves abren y cierran bloques y cada instrucción termina con ;.",
                     "El nombre de una clase pública debe coincidir con el archivo. En este comprobador el archivo y la clase principal se llaman AppStudent.");
+            case "UML: leer diagramas de clases" -> guide(
+                    "UML permite dibujar las clases y contratos de un sistema antes de implementarlos, para conversar sobre el diseño sin depender todavía del código.",
+                    "<<interface>> Nombre / +operacion(): Tipo / -atributo: Tipo / flecha punteada con triángulo = implements",
+                    "Un rectángulo se divide en nombre, atributos y operaciones. + significa public, - significa private, # protected. La relación de implementación conecta una clase con una interfaz; la flecha apunta hacia el contrato.",
+                    "UML es una notación, no código que Java ejecute. No confundas implements (cumplir un contrato), extends (heredar) y una asociación (un objeto guarda o usa otro).");
             case "Tipos y variables" -> guide(
                     "Declaran qué clase de dato puede guardar una variable y permiten al compilador detectar operaciones incorrectas.",
                     "int edad = 16;  double precio = 2.5;  boolean activo = true;  String nombre = \"Ana\";",
@@ -1261,14 +1358,221 @@ public class App {
                     "No registres contraseñas, tokens ni datos personales innecesarios. No uses System.out como sistema de logs de una aplicación de servidor.");
             default -> throw new IllegalArgumentException("No existe una guía detallada para el tema: " + title);
         };
+        String[] beginnerSteps = beginnerSteps(title);
+        return basicGuide
+                + "\n\nRECORRIDO DEL EJEMPLO, PASO A PASO\n" + beginnerSteps[0]
+                + "\n\nRETO PARA PRACTICAR\n" + beginnerSteps[1]
+                + "\n\nCÓMO COMPROBARLO\n"
+                + "1. Pulsa «Restaurar ejemplo» para tener una copia limpia del programa de este tema.\n"
+                + "2. Pulsa «Ejecutar código» o usa Ctrl+Enter y lee el resultado que aparece debajo del editor.\n"
+                + "3. Cambia solo una cosa del reto (un dato, una condición o una instrucción) y vuelve a ejecutar.\n"
+                + "4. Compara los dos resultados. Si hay un error, mira el número de línea y comprueba primero los paréntesis, las llaves, las comillas y los punto y coma.";
     }
 
     private static String guide(String purpose, String syntax, String usage, String caution) {
-        return "PARA QUÉ SIRVE\n" + purpose
+        return "IDEA PRINCIPAL Y PARA QUÉ SIRVE\n" + purpose
                 + "\n\nSINTAXIS CLAVE\n" + syntax
-                + "\n\nCÓMO SE UTILIZA\n" + usage
-                + "\n\nERRORES Y BUENAS PRÁCTICAS\n" + caution
-                + "\n\nPráctica: carga el ejemplo de este tema en el comprobador, ejecútalo y modifica un valor o una condición para observar el cambio.";
+                + "\n\nCÓMO LEER Y USAR ESTA SINTAXIS\n" + usage
+                + "\n\nERRORES FRECUENTES Y BUENAS PRÁCTICAS\n" + caution;
+    }
+
+    private static String[] beginnerSteps(String title) {
+        return switch (title) {
+            case "Tu primer programa" -> new String[] {
+                "1. Busca `class AppStudent`: declara el molde principal del programa.\n2. Dentro, localiza `main`: la JVM empieza a ejecutar allí.\n3. Lee `System.out.println` como «escribe este mensaje en la consola».\n4. Las llaves muestran qué instrucciones pertenecen a cada bloque; el punto y coma termina la instrucción.",
+                "Cambia el mensaje entre comillas por un saludo tuyo. Ejecútalo y comprueba que aparece exactamente el texto nuevo."
+            };
+            case "UML: leer diagramas de clases" -> new String[] {
+                "1. El primer rectángulo lleva el estereotipo `<<interface>>` y el nombre Sonido.\n2. `+ emitir(): String` dice que existe una operación pública llamada emitir que devuelve texto.\n3. El rectángulo Perro muestra una clase concreta.\n4. La línea punteada con triángulo señala que Perro implementa el contrato Sonido; el Java equivalente usa `implements`.",
+                "En la salida UML, cambia el nombre Perro por Gato y dibuja otra clase que implemente Sonido. Después crea la clase Gato en el código y haz que devuelva `Miau`."
+            };
+            case "Tipos y variables" -> new String[] {
+                "1. Lee cada declaración de izquierda a derecha: tipo, nombre, signo igual y valor.\n2. El tipo decide qué clase de dato puede guardarse.\n3. `=` asigna el valor a la variable; después el nombre se puede reutilizar.\n4. `println` convierte los valores a texto para mostrarlos.",
+                "Cambia `edad` o `promedio` y vuelve a ejecutar. Añade otra variable `String ciudad` y muéstrala en una línea nueva."
+            };
+            case "Clases envoltorio" -> new String[] {
+                "1. `int` es un valor primitivo y `Integer` es el objeto equivalente.\n2. `List<Integer>` significa una lista que contiene enteros empaquetados como objetos.\n3. `add(10)` convierte automáticamente el 10 a Integer.\n4. Al leer un elemento como `int`, Java lo convierte de vuelta.",
+                "Añade un número a la lista y actualiza la suma para incluirlo. Observa cómo la lista puede crecer sin declarar un tamaño fijo."
+            };
+            case "Operadores y conversiones" -> new String[] {
+                "1. Multiplica cantidad por precio para obtener un total.\n2. `>=` y `>` comparan números y producen `true` o `false`.\n3. `&&` exige que ambas condiciones sean verdaderas.\n4. `(double) 7 / 2` convierte el primer número antes de dividir, por eso conserva la fracción.",
+                "Cambia cantidad a 2. Predice si habrá descuento antes de ejecutar; luego compara tu predicción con el resultado."
+            };
+            case "Decimales y dinero" -> new String[] {
+                "1. `new BigDecimal(\"19.99\")` crea un decimal exacto desde texto.\n2. `multiply` multiplica dos importes sin modificar el objeto original.\n3. `setScale(2, HALF_UP)` redondea el impuesto a dos decimales.\n4. Cada operación devuelve un nuevo BigDecimal, que se guarda en otra variable.",
+                "Cambia el precio o la cantidad y calcula el subtotal antes de ejecutar. Prueba un importe cuyo impuesto requiera redondeo."
+            };
+            case "Decisiones: if y switch" -> new String[] {
+                "1. `puntos / 10` calcula el grupo al que pertenece la puntuación.\n2. `switch` compara ese resultado con los `case` disponibles.\n3. `->` indica qué respuesta corresponde a cada caso.\n4. `default` cubre cualquier valor no listado y evita dejar el resultado sin asignar.",
+                "Cambia `puntos` a 65 y después a 95. Añade otro mensaje en el caso que corresponda a 6."
+            };
+            case "Ciclos" -> new String[] {
+                "1. `intentos = 0` prepara el contador.\n2. `intentos < 3` pregunta si debe continuar.\n3. El cuerpo muestra el número de intento.\n4. `intentos++` suma uno; al llegar a 3, la condición queda falsa y el ciclo termina.",
+                "Cambia el límite de 3 a 5 y comprueba cuántas líneas aparecen. Identifica qué pasaría si quitaras `intentos++`."
+            };
+            case "Arreglos" -> new String[] {
+                "1. `int[]` indica que la variable guarda un arreglo de enteros.\n2. Las llaves inicializan tres elementos: índices 0, 1 y 2.\n3. El for-each asigna cada nota a la variable `nota` una por una.\n4. `suma / notas.length` calcula el promedio; convertir a double evita división entera.",
+                "Agrega una cuarta nota al arreglo. Comprueba que el promedio se adapte sin cambiar el límite de un ciclo."
+            };
+            case "Texto: String" -> new String[] {
+                "1. Se crean dos textos con el mismo contenido.\n2. `equals` compara los caracteres y devuelve true.\n3. `==` compara si ambas variables apuntan al mismo objeto; por eso puede dar false.\n4. StringBuilder acumula partes y `toString` permite mostrar el texto final.",
+                "Cambia uno de los textos a `Java 17`. Observa cómo cambia equals; luego prueba `equalsIgnoreCase` con diferencias de mayúsculas."
+            };
+            case "Entrada con Scanner" -> new String[] {
+                "1. `Scanner` toma una fuente de texto; aquí usamos una cadena fija para que el ejemplo sea ejecutable sin pedir entrada.\n2. `next()` lee la primera palabra: Ana.\n3. `nextInt()` lee el número que sigue: 16.\n4. La concatenación forma un mensaje con ambos valores.",
+                "Cambia el texto `Ana 16` por tu nombre y otra edad. Conserva una palabra seguida de un número para que Scanner pueda leerlos."
+            };
+            case "Métodos y sobrecarga" -> new String[] {
+                "1. `sumar` declara una operación que recibe dos números.\n2. `int` indica que su resultado será entero.\n3. `return` entrega la suma a quien llamó al método.\n4. Java elige la versión apropiada según los tipos de argumentos.",
+                "Añade una llamada a sumar con otros valores y predice el resultado. Después cambia un argumento a decimal para usar la sobrecarga double."
+            };
+            case "Clases y objetos" -> new String[] {
+                "1. La clase Perro define qué datos y acciones tiene un perro.\n2. `new Perro()` construye un ejemplar concreto.\n3. `mascota.nombre` asigna estado a ese objeto.\n4. `mascota.ladrar()` llama una acción y utiliza el nombre guardado.",
+                "Crea un segundo objeto Perro con otro nombre y haz que ambos ladren. Compara qué datos comparten y cuáles son propios."
+            };
+            case "Constructores y this" -> new String[] {
+                "1. `new Persona(\"Luis\")` solicita crear un objeto y le pasa un nombre.\n2. Java llama al constructor `Persona(String nombre)`.\n3. `this.nombre` se refiere al campo del nuevo objeto.\n4. El parámetro `nombre` es el dato recibido; después saludar lo utiliza.",
+                "Crea una Persona con otro nombre y observa cómo cambia el saludo. Prueba qué mensaje de compilación aparece si quitas el constructor."
+            };
+            case "Encapsulación" -> new String[] {
+                "1. El saldo empieza en cero y no se puede modificar directamente desde fuera porque es private.\n2. depositar recibe el importe y lo valida.\n3. Si no es positivo, lanza una excepción y no altera el saldo.\n4. getSaldo permite consultar el resultado sin exponer el campo.",
+                "Deposita un segundo importe positivo. Después intenta depositar -10 y observa el error controlado."
+            };
+            case "static y final" -> new String[] {
+                "1. `IVA` es una constante declarada una sola vez en la clase.\n2. `precioConImpuesto` es static y se puede llamar desde main sin instanciar AppStudent.\n3. La multiplicación aplica el porcentaje al precio.\n4. El resultado se muestra en consola.",
+                "Cambia el precio enviado al método. Luego prueba quitar final de IVA y explica por qué las constantes deben mantenerse estables."
+            };
+            case "Herencia" -> new String[] {
+                "1. Animal define el comportamiento común `comer`.\n2. Gato `extends Animal`: un Gato puede usar ese comportamiento heredado.\n3. Gato también añade `maullar`, que es específico.\n4. Se crea un Gato y se llaman ambas operaciones.",
+                "Crea una clase Pez que extienda Animal y agrega un método propio. Ejecuta el comportamiento heredado y el nuevo."
+            };
+            case "Polimorfismo" -> new String[] {
+                "1. La variable está declarada con el tipo general Animal.\n2. `new Perro()` crea un objeto concreto de tipo Perro.\n3. La llamada usa la versión de `sonido` que Perro sobrescribió.\n4. La decisión de qué implementación ejecutar se toma cuando corre el programa.",
+                "Añade una subclase Gato que sobrescriba sonido y asigna un Gato a la variable Animal. Comprueba qué texto aparece."
+            };
+            case "Interfaces y abstracción" -> new String[] {
+                "1. Notificador declara qué operación necesita el consumidor: enviar.\n2. NotificadorConsola implementa el contrato y decide cómo enviar.\n3. `avisar` solo conoce la interfaz, no depende de la clase concreta.\n4. main conecta ambas piezas pasando la implementación.",
+                "Cambia el mensaje enviado. Después crea otra implementación de Notificador que imprima un prefijo distinto."
+            };
+            case "enum y record" -> new String[] {
+                "1. Producto es un record cuyos componentes son nombre y precio.\n2. `new Producto(...)` crea el valor.\n3. `producto.nombre()` y `precio()` son accesores generados automáticamente.\n4. Estado solo puede tomar las constantes declaradas en el enum.",
+                "Cambia el nombre y el precio del producto. Prueba imprimirlo directamente para ver el toString generado por el record."
+            };
+            case "Paquetes y visibilidad" -> new String[] {
+                "1. La primera línea declara que la clase pertenece a curso.basico.\n2. La carpeta de compilación refleja ese nombre de paquete.\n3. main imprime el paquete que Java asignó a la clase.\n4. Las reglas de visibilidad deciden qué clases pueden usar cada miembro.",
+                "Cambia el nombre del paquete y ejecuta otra vez. Comprueba que el editor compila y ejecuta la clase usando ese paquete."
+            };
+            case "Excepciones" -> new String[] {
+                "1. `parseInt` intenta transformar texto en entero.\n2. `42x` no es un número entero válido, por eso ocurre NumberFormatException.\n3. catch recibe ese error y muestra un mensaje en vez de terminar sin explicación.\n4. finally se ejecuta tanto si la conversión funciona como si falla.",
+                "Cambia `42x` a `42` y compara la salida. Luego cambia a `abc` y comprueba que el programa siga explicando el problema."
+            };
+            case "equals, hashCode y toString" -> new String[] {
+                "1. Dos records se crean con los mismos componentes.\n2. equals compara su valor, no solo si son exactamente el mismo objeto.\n3. hashCode genera un entero coherente con esa igualdad.\n4. println llama toString para mostrar una representación legible.",
+                "Cambia el id del segundo Usuario. Comprueba que equals pasa a false y que la representación impresa refleja los valores."
+            };
+            case "Colecciones: List" -> new String[] {
+                "1. La variable usa la interfaz List y crea una implementación ArrayList.\n2. add agrega elementos al final y acepta duplicados.\n3. El for-each recorre cada nombre en el orden de inserción.\n4. size devuelve cuántos elementos contiene la lista.",
+                "Agrega otro nombre repetido y ejecuta. Observa que se conserva y que size aumenta."
+            };
+            case "Colecciones: Set y Map" -> new String[] {
+                "1. El Set recibe dos veces la misma etiqueta, pero conserva solo una copia.\n2. El Map asocia la clave Ana con el valor 20.\n3. get busca el valor usando la clave.\n4. Set y Map se usan para necesidades distintas: unicidad frente a asociaciones.",
+                "Agrega Luis dos veces al Set y otra clave al Map. Comprueba qué cantidad única conserva y qué valor devuelve cada clave."
+            };
+            case "Genéricos" -> new String[] {
+                "1. `<T>` declara un tipo que se decidirá cuando alguien llame al método.\n2. La primera llamada infiere T como String.\n3. La segunda infiere T como Integer.\n4. El compilador comprueba que cada resultado se asigne a una variable del tipo correcto.",
+                "Prueba `primero(List.of(true, false))` y guarda el resultado en boolean. Después intenta asignar el nombre String a Integer y lee el error."
+            };
+            case "Lambdas e interfaces funcionales" -> new String[] {
+                "1. Predicate<String> representa una pregunta que recibe texto y devuelve true o false.\n2. La lambda comprueba si el texto supera cuatro caracteres.\n3. filter conserva solo los nombres que pasan la pregunta.\n4. forEach muestra cada resultado seleccionado.",
+                "Cambia la condición a `length() > 3` y predice qué nombres aparecen antes de ejecutar."
+            };
+            case "Streams" -> new String[] {
+                "1. stream crea una secuencia a partir de la lista original.\n2. filter deja pasar solamente los números pares.\n3. mapToInt convierte cada Integer en un IntStream.\n4. sum ejecuta la cadena y devuelve el total.",
+                "Agrega el número 8. Calcula mentalmente la nueva suma de pares y confirma ejecutando el código."
+            };
+            case "null y Optional" -> new String[] {
+                "1. buscarCorreo devuelve un Optional en todos los caminos.\n2. Para Ana contiene un correo; para otro usuario devuelve empty.\n3. orElse entrega un texto alternativo cuando no hay resultado.\n4. Así se hace visible que la búsqueda puede no encontrar datos.",
+                "Busca `ana` y luego `desconocido`. Compara el valor real con el texto alternativo."
+            };
+            case "Fechas y horas" -> new String[] {
+                "1. LocalDate.of crea una fecha concreta sin componente de hora.\n2. plusDays calcula una nueva fecha dos semanas después.\n3. DateTimeFormatter define cómo se escribe día, mes y año.\n4. format convierte la fecha a texto para mostrarla.",
+                "Cambia la fecha inicial o suma 30 días. Ejecuta y revisa cómo cambia la fecha formateada."
+            };
+            case "Archivos y try-with-resources" -> new String[] {
+                "1. Files.createTempFile crea un archivo temporal y devuelve su ruta Path.\n2. writeString guarda texto; readString lo lee.\n3. finally intenta borrar el archivo incluso si la lectura falla.\n4. `throws Exception` permite que el ejemplo pequeño propague errores al entorno.",
+                "Cambia el texto que se escribe y verifica el texto leído. Ejecuta otra vez para comprobar que se crea un archivo nuevo."
+            };
+            case "Anotaciones" -> new String[] {
+                "1. @interface declara una anotación propia con un elemento de texto.\n2. @Descripcion agrega metadatos a la clase Servicio.\n3. @Override le pide al compilador verificar la sobrescritura de toString.\n4. println muestra el resultado del método sobrescrito.",
+                "Cambia el texto devuelto por toString. Después altera su firma y observa cómo @Override ayuda a detectar un error."
+            };
+            case "Concurrencia básica" -> new String[] {
+                "1. ExecutorService prepara un trabajador para ejecutar tareas.\n2. submit envía una lambda que calcula la suma en ese trabajador.\n3. Future representa el resultado que todavía se está produciendo.\n4. get espera el resultado; shutdown libera el executor.",
+                "Cambia los números de la suma. Observa que get entrega el resultado y que el finally apaga el executor."
+            };
+            case "Pruebas y aserciones" -> new String[] {
+                "1. sumar es la función que queremos verificar.\n2. comprobar recibe una condición esperada y un mensaje explicativo.\n3. Si la condición es falsa, AssertionError hace fallar claramente la comprobación.\n4. Si ambas condiciones son verdaderas, se imprime que pasaron.",
+                "Cambia la primera expectativa de 5 a 6. Ejecuta y observa cómo una prueba fallida señala el caso incorrecto."
+            };
+            case "Maven y el proyecto Java" -> new String[] {
+                "1. El arreglo muestra nombres de fases habituales del ciclo Maven.\n2. El for recorre una fase en cada vuelta.\n3. pom.xml es el archivo donde se declaran identidad, versión y dependencias.\n4. Maven normalmente ejecuta también las fases previas necesarias.",
+                "Cambia el orden o añade una fase al arreglo. Ejecuta y relaciona el ejemplo con `mvn test` y `mvn package`."
+            };
+            case "Diseño: depender de interfaces" -> new String[] {
+                "1. Repositorio define una operación sin decidir cómo almacena el dato.\n2. RepositorioEnMemoria implementa esa operación para el ejemplo.\n3. Servicio recibe el repositorio por su constructor.\n4. main conecta las piezas; podría pasar otra implementación sin reescribir Servicio.",
+                "Modifica el valor devuelto por RepositorioEnMemoria. Después crea otra implementación que devuelva un texto distinto."
+            };
+            case "Depuración y errores" -> new String[] {
+                "1. dividir se llama con divisor cero, una entrada que no es válida para división entera.\n2. La operación lanza ArithmeticException.\n3. catch identifica el tipo y mensaje del error.\n4. El diagnóstico indica qué revisar en el stack trace.",
+                "Cambia el divisor a 2 para ver el camino sin excepción. Vuelve a 0 y compara ambos resultados."
+            };
+            case "HTTP y REST" -> new String[] {
+                "1. La solicitud guarda un método HTTP y una ruta de recurso.\n2. El ejemplo pregunta si el método es GET.\n3. El servidor selecciona un código según el método.\n4. La respuesta 200 representa éxito; una aplicación real también devuelve cabeceras y posiblemente JSON.",
+                "Cambia GET a POST. Predice el código de respuesta y comprueba cómo cambiaría el caso condicional."
+            };
+            case "JSON y DTO" -> new String[] {
+                "1. ProductoRespuesta es el DTO con dos datos públicos para la respuesta.\n2. Se crea con un id y un nombre.\n3. El ejemplo ensambla una cadena con forma de JSON para ilustrar el concepto.\n4. En una aplicación real Jackson hace la conversión y escapa caracteres.",
+                "Cambia nombre o id y ejecuta. Prueba un nombre con comillas para entender por qué el JSON real debe generarse con una biblioteca."
+            };
+            case "SQL y JDBC" -> new String[] {
+                "1. La consulta selecciona columnas de una tabla.\n2. El signo ? reserva un lugar para un dato; no se concatena dentro del SQL.\n3. setLong asigna el id al parámetro número 1.\n4. El programa solo explica la consulta; no abre una base de datos.",
+                "Cambia el nombre de la tabla y el id. Busca en el texto por qué el parámetro es más seguro que concatenar una entrada."
+            };
+            case "Logs" -> new String[] {
+                "1. Logger identifica desde qué clase se producen mensajes.\n2. info registra un evento normal.\n3. warning resalta una condición que merece atención.\n4. El ejemplo separa logs técnicos de un mensaje didáctico en la salida del comprobador.",
+                "Añade una línea LOG.info con un evento inventado. Evita incluir contraseñas, tokens o datos privados."
+            };
+            default -> throw new IllegalArgumentException("No hay recorrido para: " + title);
+        };
+    }
+
+    private static String formatGuideHtml(String guideText) {
+        StringBuilder html = new StringBuilder(
+                "<html><head><style>"
+                + "body{font-family:'Segoe UI',sans-serif;color:#2d3748;font-size:13px;line-height:1.55;margin:10px 12px 16px;}"
+                + "h2{font-size:13px;color:#3569be;margin:17px 0 6px;padding-bottom:4px;border-bottom:1px solid #e4e9f1;}"
+                + "p{margin:4px 0 8px;}"
+                + ".syntax{background:#f2f5fa;border-left:3px solid #3569be;padding:9px 10px;font-family:Consolas,monospace;}"
+                + ".steps{padding-left:4px;}"
+                + "</style></head><body>");
+        for (String section : guideText.split("\\n\\n")) {
+            int newline = section.indexOf('\n');
+            String heading = newline >= 0 ? section.substring(0, newline) : section;
+            String body = newline >= 0 ? section.substring(newline + 1) : "";
+            html.append("<h2>").append(escapeHtml(heading)).append("</h2>");
+            if (heading.equals("SINTAXIS CLAVE")) {
+                html.append("<div class='syntax'>").append(escapeHtml(body).replace("\n", "<br>"))
+                        .append("</div>");
+            } else {
+                html.append("<p>").append(escapeHtml(body).replace("\n", "<br>")).append("</p>");
+            }
+        }
+        return html.append("</body></html>").toString();
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;")
+                .replace(">", "&gt;").replace("\"", "&quot;");
     }
 
     private static Lesson lesson(String title, String explanation, String example,
@@ -1283,13 +1587,21 @@ public class App {
     private final JList<String> lessonList = new JList<>(lessonListModel);
     private final JLabel lessonTitle = new JLabel();
     private final JLabel explanation = new JLabel();
-    private final JTextArea guide = new JTextArea();
+    private final JEditorPane guide = new JEditorPane();
     private final JTextArea example = new JTextArea();
     private final JTextArea editor = new JTextArea();
+    private final JTextArea lineNumbers = new JTextArea("1");
     private final JTextArea output = new JTextArea();
     private final DiagramPanel diagram = new DiagramPanel();
     private final JLabel runStatus = new JLabel("Listo para practicar");
     private final JButton runButton = new JButton("▶  Ejecutar código");
+    private final JTabbedPane projectEditorTabs = new JTabbedPane();
+    private final JTree projectTree = new JTree(new DefaultMutableTreeNode("Abre o crea un proyecto"));
+    private final JTextArea projectOutput = new JTextArea();
+    private final JLabel projectStatus = new JLabel("Crea un proyecto o abre una carpeta Java.");
+    private final Map<Path, ProjectEditor> openProjectEditors = new LinkedHashMap<>();
+    private Path projectRoot;
+    private Path sourceRoot;
     private final boolean[] completed = new boolean[LESSONS.length];
     private int selectedLesson = -1;
 
@@ -1298,9 +1610,9 @@ public class App {
     }
 
     private void show() {
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setMinimumSize(new Dimension(1080, 700));
-        frame.setSize(1280, 820);
+        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        frame.setMinimumSize(new Dimension(1200, 720));
+        frame.setSize(1450, 880);
         frame.setLocationRelativeTo(null);
         frame.getContentPane().setBackground(BACKGROUND);
         frame.setLayout(new BorderLayout());
@@ -1313,6 +1625,13 @@ public class App {
         lessonList.setSelectedIndex(0);
 
         frame.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent event) {
+                if (projectRoot == null || saveProjectFiles()) {
+                    frame.dispose();
+                }
+            }
+
             @Override
             public void windowClosed(WindowEvent event) {
                 frame.dispose();
@@ -1342,13 +1661,17 @@ public class App {
     }
 
     private JSplitPane createWorkspace() {
-        JPanel navigation = createNavigation();
+        JTabbedPane navigation = createNavigation();
         JPanel study = createStudyPanel();
         JPanel practice = createPracticePanel();
 
-        JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, study, practice);
-        rightSplit.setResizeWeight(0.48);
-        rightSplit.setDividerLocation(0.48);
+        JTabbedPane workbench = new JTabbedPane();
+        workbench.addTab("Ejercicio del tema", practice);
+        workbench.addTab("Mi proyecto", createProjectWorkspace());
+
+        JSplitPane rightSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workbench, study);
+        rightSplit.setResizeWeight(0.68);
+        rightSplit.setDividerLocation(0.68);
         rightSplit.setBorder(null);
 
         JSplitPane workspace = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, navigation, rightSplit);
@@ -1358,7 +1681,7 @@ public class App {
         return workspace;
     }
 
-    private JPanel createNavigation() {
+    private JTabbedPane createNavigation() {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBackground(Color.WHITE);
         panel.setBorder(BorderFactory.createEmptyBorder(20, 14, 14, 14));
@@ -1396,13 +1719,539 @@ public class App {
         quizButton.setFont(new Font("Segoe UI", Font.PLAIN, 12));
         quizButton.addActionListener(event -> showQuiz());
         panel.add(quizButton, BorderLayout.SOUTH);
+        JTabbedPane navigationTabs = new JTabbedPane();
+        navigationTabs.addTab("Curso", panel);
+        navigationTabs.addTab("Archivos", createProjectExplorer());
+        return navigationTabs;
+    }
+
+    private JPanel createProjectExplorer() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(Color.WHITE);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 10, 12, 10));
+
+        JLabel heading = new JLabel("CLASES DEL PROYECTO");
+        heading.setForeground(MUTED);
+        heading.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        panel.add(heading, BorderLayout.NORTH);
+
+        projectTree.setRootVisible(true);
+        projectTree.setShowsRootHandles(true);
+        projectTree.addTreeSelectionListener(event -> {
+            Object selected = projectTree.getLastSelectedPathComponent();
+            if (selected instanceof ProjectFileNode node && !node.directory) {
+                openProjectFile(node.path);
+            }
+        });
+        JScrollPane treeScroll = new JScrollPane(projectTree);
+        treeScroll.setBorder(BorderFactory.createLineBorder(new Color(228, 233, 241)));
+        panel.add(treeScroll, BorderLayout.CENTER);
+
+        JButton newProject = new JButton("Crear proyecto");
+        newProject.addActionListener(event -> createNewProject());
+        JButton openProject = new JButton("Abrir carpeta");
+        openProject.addActionListener(event -> openProject());
+        JPanel buttons = new JPanel(new java.awt.GridLayout(2, 1, 0, 6));
+        buttons.setOpaque(false);
+        buttons.add(newProject);
+        buttons.add(openProject);
+        panel.add(buttons, BorderLayout.SOUTH);
         return panel;
+    }
+
+    private JPanel createProjectWorkspace() {
+        JPanel panel = new JPanel(new BorderLayout(0, 10));
+        panel.setBackground(BACKGROUND);
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 14, 16));
+
+        JLabel title = new JLabel("Mi proyecto Java");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 21));
+        title.setForeground(NAVY);
+        JLabel hint = new JLabel("Trabaja con varias clases e interfaces en archivos separados.");
+        hint.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        hint.setForeground(MUTED);
+        JPanel heading = new JPanel(new BorderLayout(0, 4));
+        heading.setOpaque(false);
+        heading.add(title, BorderLayout.NORTH);
+        heading.add(hint, BorderLayout.SOUTH);
+
+        JButton newProject = new JButton("Nuevo proyecto");
+        newProject.addActionListener(event -> createNewProject());
+        JButton openProject = new JButton("Abrir");
+        openProject.addActionListener(event -> openProject());
+        JButton newClass = new JButton("Nueva clase");
+        newClass.addActionListener(event -> createSourceType(false));
+        JButton newInterface = new JButton("Nueva interfaz");
+        newInterface.addActionListener(event -> createSourceType(true));
+        JButton save = new JButton("Guardar todo");
+        save.addActionListener(event -> saveProjectFiles());
+        JButton run = new JButton("▶ Compilar y ejecutar");
+        run.setForeground(Color.WHITE);
+        run.setBackground(GREEN);
+        run.setOpaque(true);
+        run.setBorderPainted(false);
+        run.setFocusPainted(false);
+        run.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        run.addActionListener(event -> runProject());
+
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        toolbar.setOpaque(false);
+        toolbar.add(newProject);
+        toolbar.add(openProject);
+        toolbar.add(newClass);
+        toolbar.add(newInterface);
+        toolbar.add(save);
+        toolbar.add(run);
+
+        JPanel top = new JPanel(new BorderLayout(0, 10));
+        top.setOpaque(false);
+        top.add(heading, BorderLayout.NORTH);
+        top.add(toolbar, BorderLayout.SOUTH);
+        panel.add(top, BorderLayout.NORTH);
+
+        projectEditorTabs.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        projectEditorTabs.addTab("Inicio", createProjectWelcome());
+        projectEditorTabs.setBorder(BorderFactory.createLineBorder(new Color(216, 224, 235)));
+
+        projectOutput.setEditable(false);
+        projectOutput.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        projectOutput.setBackground(new Color(35, 44, 60));
+        projectOutput.setForeground(new Color(226, 236, 250));
+        projectOutput.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        JScrollPane outputScroll = new JScrollPane(projectOutput);
+        outputScroll.setBorder(BorderFactory.createLineBorder(new Color(216, 224, 235)));
+
+        JPanel outputPanel = new JPanel(new BorderLayout(0, 6));
+        outputPanel.setOpaque(false);
+        outputPanel.setPreferredSize(new Dimension(400, 165));
+        JLabel outputTitle = sectionLabel("SALIDA DEL PROYECTO");
+        outputPanel.add(outputTitle, BorderLayout.NORTH);
+        outputPanel.add(outputScroll, BorderLayout.CENTER);
+
+        projectStatus.setForeground(MUTED);
+        projectStatus.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JPanel lower = new JPanel(new BorderLayout(0, 6));
+        lower.setOpaque(false);
+        lower.add(projectStatus, BorderLayout.NORTH);
+        lower.add(outputPanel, BorderLayout.CENTER);
+
+        JSplitPane editorAndOutput = new JSplitPane(JSplitPane.VERTICAL_SPLIT, projectEditorTabs, lower);
+        editorAndOutput.setResizeWeight(0.7);
+        editorAndOutput.setDividerLocation(0.7);
+        editorAndOutput.setBorder(null);
+        panel.add(editorAndOutput, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private JPanel createProjectWelcome() {
+        JPanel welcome = new JPanel(new BorderLayout(12, 12));
+        welcome.setBackground(Color.WHITE);
+        welcome.setBorder(BorderFactory.createEmptyBorder(32, 36, 32, 36));
+        JLabel title = new JLabel("Tu espacio para construir programas");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 20));
+        title.setForeground(NAVY);
+        JTextArea instructions = new JTextArea(
+                "1. Crea un proyecto o abre una carpeta de tu computadora.\n\n"
+                + "2. Usa Nueva clase o Nueva interfaz para crear archivos Java separados.\n\n"
+                + "3. Abre los archivos desde la pestaña Archivos de la izquierda y edítalos en sus propias pestañas.\n\n"
+                + "4. Guarda los cambios y pulsa Compilar y ejecutar. El programa compila todas las clases juntas.\n\n"
+                + "Un proyecto nuevo incluye Main.java. No necesitas que cada clase tenga main: solo la clase principal "
+                + "que inicia el programa necesita ese método.");
+        instructions.setEditable(false);
+        instructions.setLineWrap(true);
+        instructions.setWrapStyleWord(true);
+        instructions.setFont(new Font("Segoe UI", Font.PLAIN, 15));
+        instructions.setForeground(TEXT);
+        instructions.setBackground(Color.WHITE);
+        welcome.add(title, BorderLayout.NORTH);
+        welcome.add(instructions, BorderLayout.CENTER);
+        return welcome;
+    }
+
+    private void createNewProject() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Elige dónde crear el proyecto");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setApproveButtonText("Elegir carpeta");
+        if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        String name = JOptionPane.showInputDialog(
+                frame, "Nombre del proyecto (usa letras, números, guion o guion bajo):",
+                "Nuevo proyecto", JOptionPane.PLAIN_MESSAGE);
+        if (name == null) {
+            return;
+        }
+        name = name.trim();
+        if (!name.matches("[A-Za-z0-9_-]+")) {
+            JOptionPane.showMessageDialog(frame,
+                    "El nombre solo puede tener letras, números, guion y guion bajo.",
+                    "Nombre no válido", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        Path project = chooser.getSelectedFile().toPath().resolve(name);
+        if (Files.exists(project)) {
+            JOptionPane.showMessageDialog(frame, "Ya existe una carpeta con ese nombre.",
+                    "Elige otro nombre", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (projectRoot != null && !saveProjectFiles()) {
+            return;
+        }
+        try {
+            Path javaSource = project.resolve("src").resolve("main").resolve("java");
+            Files.createDirectories(javaSource);
+            Files.writeString(javaSource.resolve("Main.java"), """
+                    public class Main {
+                        public static void main(String[] args) {
+                            System.out.println("Mi primer proyecto Java");
+                        }
+                    }
+                    """, StandardCharsets.UTF_8);
+            Files.writeString(project.resolve("README.md"),
+                    "# " + name + "\n\nProyecto Java creado con Aprende Java paso a paso.\n",
+                    StandardCharsets.UTF_8);
+            setProject(project);
+            openProjectFile(javaSource.resolve("Main.java"));
+            projectStatus.setText("Proyecto creado. Edita Main.java o añade clases e interfaces.");
+        } catch (IOException exception) {
+            showProjectError("No se pudo crear el proyecto: " + exception.getMessage());
+        }
+    }
+
+    private void openProject() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Abre la carpeta raíz del proyecto Java");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setApproveButtonText("Abrir proyecto");
+        if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        if (projectRoot != null && !saveProjectFiles()) {
+            return;
+        }
+        setProject(chooser.getSelectedFile().toPath());
+    }
+
+    private void setProject(Path root) {
+        projectRoot = root.toAbsolutePath().normalize();
+        Path conventionalSource = projectRoot.resolve("src").resolve("main").resolve("java");
+        Path simpleSource = projectRoot.resolve("src");
+        sourceRoot = Files.isDirectory(conventionalSource)
+                ? conventionalSource
+                : Files.isDirectory(simpleSource) ? simpleSource : projectRoot;
+        openProjectEditors.clear();
+        projectEditorTabs.removeAll();
+        projectTree.clearSelection();
+        projectOutput.setText("");
+        projectStatus.setText("Proyecto abierto: " + projectRoot);
+        refreshProjectTree();
+    }
+
+    private void refreshProjectTree() {
+        if (projectRoot == null) {
+            projectTree.setModel(new DefaultTreeModel(new DefaultMutableTreeNode("Abre o crea un proyecto")));
+            return;
+        }
+        try {
+            ProjectFileNode root = new ProjectFileNode(projectRoot, true);
+            addProjectTreeChildren(root, projectRoot);
+            projectTree.setModel(new DefaultTreeModel(root));
+            projectTree.expandRow(0);
+            if (root.getChildCount() > 0) {
+                projectTree.expandRow(1);
+            }
+        } catch (IOException exception) {
+            showProjectError("No se pudo leer el proyecto: " + exception.getMessage());
+        }
+    }
+
+    private void addProjectTreeChildren(ProjectFileNode parent, Path directory) throws IOException {
+        try (Stream<Path> entries = Files.list(directory)) {
+            for (Path child : entries.sorted(Comparator.comparing(path ->
+                    !Files.isDirectory(path) + path.getFileName().toString().toLowerCase())).toList()) {
+                String name = child.getFileName().toString();
+                if (Files.isDirectory(child)) {
+                    if (isIgnoredProjectDirectory(name)) {
+                        continue;
+                    }
+                    ProjectFileNode directoryNode = new ProjectFileNode(child, true);
+                    parent.add(directoryNode);
+                    addProjectTreeChildren(directoryNode, child);
+                } else if (name.endsWith(".java")) {
+                    parent.add(new ProjectFileNode(child, false));
+                }
+            }
+        }
+    }
+
+    private static boolean isIgnoredProjectDirectory(String name) {
+        return name.equals(".git") || name.equals("build") || name.equals("target")
+                || name.equals("out") || name.equals("bin") || name.equals(".idea");
+    }
+
+    private void openProjectFile(Path file) {
+        Path normalized = file.toAbsolutePath().normalize();
+        ProjectEditor existing = openProjectEditors.get(normalized);
+        if (existing != null) {
+            projectEditorTabs.setSelectedComponent(existing);
+            return;
+        }
+        try {
+            ProjectEditor projectEditor = new ProjectEditor(normalized, Files.readString(normalized, StandardCharsets.UTF_8));
+            if (projectEditorTabs.getTabCount() == 1
+                    && "Inicio".equals(projectEditorTabs.getTitleAt(0))) {
+                projectEditorTabs.removeAll();
+            }
+            openProjectEditors.put(normalized, projectEditor);
+            projectEditorTabs.addTab(normalized.getFileName().toString(), projectEditor);
+            projectEditorTabs.setSelectedComponent(projectEditor);
+        } catch (IOException exception) {
+            showProjectError("No se pudo abrir " + normalized.getFileName() + ": " + exception.getMessage());
+        }
+    }
+
+    private void createSourceType(boolean createInterface) {
+        if (projectRoot == null) {
+            JOptionPane.showMessageDialog(frame, "Primero crea o abre un proyecto.",
+                    "No hay proyecto", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        String typeName = JOptionPane.showInputDialog(frame,
+                "Nombre de " + (createInterface ? "la interfaz" : "la clase") + " (sin .java):",
+                createInterface ? "Nueva interfaz" : "Nueva clase", JOptionPane.PLAIN_MESSAGE);
+        if (typeName == null) {
+            return;
+        }
+        typeName = typeName.trim();
+        if (!javax.lang.model.SourceVersion.isIdentifier(typeName)
+                || javax.lang.model.SourceVersion.isKeyword(typeName, javax.lang.model.SourceVersion.RELEASE_17)) {
+            JOptionPane.showMessageDialog(frame, "Escribe un nombre válido para Java, por ejemplo Servicio.",
+                    "Nombre no válido", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        String packageName = JOptionPane.showInputDialog(frame,
+                "Paquete opcional (por ejemplo com.ejemplo.modelo); déjalo vacío para usar el paquete por defecto:",
+                "Paquete", JOptionPane.PLAIN_MESSAGE);
+        if (packageName == null) {
+            return;
+        }
+        packageName = packageName.trim();
+        if (!packageName.isEmpty() && !isValidPackageName(packageName)) {
+            JOptionPane.showMessageDialog(frame, "El nombre del paquete no es válido.",
+                    "Paquete no válido", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        Path targetDirectory = sourceRoot;
+        if (!packageName.isEmpty()) {
+            for (String segment : packageName.split("\\.")) {
+                targetDirectory = targetDirectory.resolve(segment);
+            }
+        }
+        Path sourceFile = targetDirectory.resolve(typeName + ".java");
+        if (Files.exists(sourceFile)) {
+            JOptionPane.showMessageDialog(frame, "Ya existe " + sourceFile.getFileName() + ".",
+                    "Archivo existente", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        String packageDeclaration = packageName.isEmpty() ? "" : "package " + packageName + ";\n\n";
+        String typeSource = createInterface
+                ? packageDeclaration + "public interface " + typeName + " {\n    String ejecutar();\n}\n"
+                : packageDeclaration + "public class " + typeName + " {\n"
+                        + "    public String ejecutar() {\n"
+                        + "        return \"" + typeName + " funciona\";\n"
+                        + "    }\n}\n";
+        try {
+            Files.createDirectories(targetDirectory);
+            Files.writeString(sourceFile, typeSource, StandardCharsets.UTF_8);
+            refreshProjectTree();
+            openProjectFile(sourceFile);
+            projectStatus.setText((createInterface ? "Interfaz" : "Clase") + " creada: " + sourceFile.getFileName());
+        } catch (IOException exception) {
+            showProjectError("No se pudo crear el archivo: " + exception.getMessage());
+        }
+    }
+
+    private static boolean isValidPackageName(String packageName) {
+        for (String segment : packageName.split("\\.")) {
+            if (!javax.lang.model.SourceVersion.isIdentifier(segment)
+                    || javax.lang.model.SourceVersion.isKeyword(
+                            segment, javax.lang.model.SourceVersion.RELEASE_17)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean saveProjectFiles() {
+        if (projectRoot == null) {
+            projectStatus.setText("Crea o abre un proyecto antes de guardar archivos.");
+            return false;
+        }
+        try {
+            for (ProjectEditor projectEditor : openProjectEditors.values()) {
+                if (projectEditor.dirty) {
+                    Files.writeString(projectEditor.path, projectEditor.editor.getText(), StandardCharsets.UTF_8);
+                    projectEditor.dirty = false;
+                    projectEditor.updateTabTitle();
+                }
+            }
+            projectStatus.setText("Todos los archivos abiertos están guardados.");
+            return true;
+        } catch (IOException exception) {
+            showProjectError("No se pudieron guardar los cambios: " + exception.getMessage());
+            return false;
+        }
+    }
+
+    private List<Path> findProjectSourceFiles() throws IOException {
+        if (sourceRoot == null || !Files.isDirectory(sourceRoot)) {
+            return List.of();
+        }
+        try (Stream<Path> paths = Files.walk(sourceRoot)) {
+            return paths.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().endsWith(".java"))
+                    .filter(path -> {
+                        Path relative = sourceRoot.relativize(path);
+                        for (Path segment : relative) {
+                            if (isIgnoredProjectDirectory(segment.toString())) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    })
+                    .sorted()
+                    .toList();
+        }
+    }
+
+    private static List<String> findMainClasses(JavaCompiler compiler, List<Path> sourceFiles)
+            throws IOException {
+        List<String> mainClasses = new ArrayList<>();
+        try (var fileManager = compiler.getStandardFileManager(null, null, StandardCharsets.UTF_8)) {
+            Iterable<? extends JavaFileObject> units = fileManager.getJavaFileObjectsFromFiles(
+                    sourceFiles.stream().map(Path::toFile).toList());
+            JavacTask parseTask = (JavacTask) compiler.getTask(
+                    null, fileManager, null, List.of("-proc:none"), null, units);
+            for (var compilationUnit : parseTask.parse()) {
+                String packageName = compilationUnit.getPackageName() == null
+                        ? "" : compilationUnit.getPackageName().toString() + ".";
+                for (Tree declaration : compilationUnit.getTypeDecls()) {
+                    if (declaration instanceof ClassTree classTree && declaresMainMethod(classTree)) {
+                        mainClasses.add(packageName + classTree.getSimpleName());
+                    }
+                }
+            }
+        }
+        return mainClasses.stream().distinct().sorted().toList();
+    }
+
+    private static boolean declaresMainMethod(ClassTree classTree) {
+        for (Tree member : classTree.getMembers()) {
+            if (member instanceof MethodTree method
+                    && method.getName().contentEquals("main")
+                    && method.getModifiers().getFlags().containsAll(Set.of(
+                            javax.lang.model.element.Modifier.PUBLIC,
+                            javax.lang.model.element.Modifier.STATIC))
+                    && method.getReturnType() != null
+                    && method.getReturnType().toString().equals("void")
+                    && method.getParameters().size() == 1) {
+                String parameterType = method.getParameters().get(0).getType().toString();
+                if (parameterType.equals("String[]") || parameterType.equals("java.lang.String[]")) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void runProject() {
+        if (projectRoot == null) {
+            JOptionPane.showMessageDialog(frame, "Primero crea o abre un proyecto.",
+                    "No hay proyecto", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        if (!saveProjectFiles()) {
+            return;
+        }
+
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        if (compiler == null) {
+            JOptionPane.showMessageDialog(frame, "Instala un JDK para compilar proyectos Java.",
+                    "Falta el compilador", JOptionPane.ERROR_MESSAGE);
+            return;
+        }
+
+        final List<Path> sourceFiles;
+        final List<String> mainClasses;
+        try {
+            sourceFiles = findProjectSourceFiles();
+            if (sourceFiles.isEmpty()) {
+                projectStatus.setText("No se encontraron archivos .java en el proyecto.");
+                return;
+            }
+            mainClasses = findMainClasses(compiler, sourceFiles);
+        } catch (IOException exception) {
+            showProjectError("No se pudieron leer los archivos fuente: " + exception.getMessage());
+            return;
+        }
+        if (mainClasses.isEmpty()) {
+            JOptionPane.showMessageDialog(frame,
+                    "No encontré una clase con public static void main(String[] args). "
+                    + "Añade ese método a la clase que quieres ejecutar.",
+                    "Falta la clase principal", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        String mainClass = mainClasses.size() == 1
+                ? mainClasses.get(0)
+                : (String) JOptionPane.showInputDialog(frame, "Elige la clase principal:",
+                        "Ejecutar proyecto", JOptionPane.QUESTION_MESSAGE, null,
+                        mainClasses.toArray(), mainClasses.get(0));
+        if (mainClass == null) {
+            return;
+        }
+
+        Path workingDirectory = projectRoot;
+        projectOutput.setText("");
+        projectStatus.setText("Compilando " + sourceFiles.size() + " archivo(s) Java...");
+        new SwingWorker<RunResult, Void>() {
+            @Override
+            protected RunResult doInBackground() throws Exception {
+                return compileAndRunProject(compiler, sourceFiles, workingDirectory, mainClass);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    RunResult result = get();
+                    projectOutput.setText(result.output);
+                    projectOutput.setCaretPosition(0);
+                    projectStatus.setText(result.timedOut
+                            ? "Ejecución detenida tras " + RUN_TIMEOUT_SECONDS + " segundos."
+                            : result.success ? "Proyecto compilado y ejecutado."
+                            : "La compilación o ejecución informó un error.");
+                } catch (Exception exception) {
+                    projectStatus.setText("No se pudo compilar el proyecto.");
+                    projectOutput.setText("Error: " + exception.getMessage());
+                }
+            }
+        }.execute();
+    }
+
+    private void showProjectError(String message) {
+        projectStatus.setText(message);
+        JOptionPane.showMessageDialog(frame, message, "Error del proyecto", JOptionPane.ERROR_MESSAGE);
     }
 
     private JPanel createStudyPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 12));
         panel.setBackground(BACKGROUND);
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 18, 16));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 18, 18, 16));
 
         lessonTitle.setFont(new Font("Segoe UI", Font.BOLD, 24));
         lessonTitle.setForeground(NAVY);
@@ -1417,7 +2266,7 @@ public class App {
         intro.add(explanation, BorderLayout.CENTER);
         panel.add(intro, BorderLayout.NORTH);
 
-        diagram.setPreferredSize(new Dimension(500, 300));
+        diagram.setPreferredSize(new Dimension(420, 300));
         JPanel diagramCard = cardPanel();
         diagramCard.setLayout(new BorderLayout());
         JLabel diagramHeading = sectionLabel("ASÍ SE VE LA IDEA");
@@ -1442,16 +2291,19 @@ public class App {
         codeCard.add(exampleScroll, BorderLayout.CENTER);
 
         guide.setEditable(false);
-        guide.setLineWrap(true);
-        guide.setWrapStyleWord(true);
+        guide.setContentType("text/html");
+        guide.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
         guide.setFont(new Font("Segoe UI", Font.PLAIN, 14));
         guide.setForeground(TEXT);
         guide.setBackground(Color.WHITE);
-        guide.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
+        guide.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JTabbedPane studyTabs = new JTabbedPane();
         studyTabs.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        studyTabs.addTab("Guía detallada", new JScrollPane(guide));
+        JScrollPane guideScroll = new JScrollPane(guide);
+        guideScroll.setBorder(BorderFactory.createLineBorder(new Color(228, 233, 241)));
+        guideScroll.getViewport().setBackground(Color.WHITE);
+        studyTabs.addTab("Guía paso a paso", guideScroll);
         studyTabs.addTab("Ilustración", diagramCard);
         studyTabs.addTab("Ejemplo", codeCard);
         panel.add(studyTabs, BorderLayout.CENTER);
@@ -1478,7 +2330,33 @@ public class App {
         editor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         editor.setTabSize(4);
         editor.setText(LESSONS[0].runnableCode);
+        lineNumbers.setEditable(false);
+        lineNumbers.setFocusable(false);
+        lineNumbers.setFont(editor.getFont());
+        lineNumbers.setForeground(MUTED);
+        lineNumbers.setBackground(new Color(242, 245, 250));
+        lineNumbers.setColumns(4);
+        lineNumbers.setMargin(new Insets(10, 4, 10, 8));
+        lineNumbers.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, new Color(216, 224, 235)));
+        editor.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent event) {
+                updateLineNumbers();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent event) {
+                updateLineNumbers();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent event) {
+                updateLineNumbers();
+            }
+        });
+        updateLineNumbers();
         JScrollPane editorScroll = new JScrollPane(editor);
+        editorScroll.setRowHeaderView(lineNumbers);
         editorScroll.setBorder(BorderFactory.createLineBorder(new Color(216, 224, 235)));
         JPanel editorCard = cardPanel();
         editorCard.setLayout(new BorderLayout());
@@ -1487,8 +2365,13 @@ public class App {
         editorCard.add(editorHeading, BorderLayout.NORTH);
         editorCard.add(editorScroll, BorderLayout.CENTER);
 
-        JButton loadExample = new JButton("Cargar ejemplo del tema");
+        JButton loadExample = new JButton("Restaurar ejemplo");
         loadExample.addActionListener(event -> editor.setText(LESSONS[selectedLesson].runnableCode));
+        JButton clearOutput = new JButton("Limpiar salida");
+        clearOutput.addActionListener(event -> {
+            output.setText("");
+            runStatus.setText("Salida limpia. Ejecuta el código para ver un resultado.");
+        });
         runButton.setForeground(Color.WHITE);
         runButton.setBackground(GREEN);
         runButton.setOpaque(true);
@@ -1496,10 +2379,22 @@ public class App {
         runButton.setFocusPainted(false);
         runButton.setFont(new Font("Segoe UI", Font.BOLD, 13));
         runButton.addActionListener(event -> runStudentCode());
+        editor.getInputMap(JPanel.WHEN_IN_FOCUSED_WINDOW)
+                .put(KeyStroke.getKeyStroke("control ENTER"), "run-code");
+        editor.getActionMap().put("run-code", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                runStudentCode();
+            }
+        });
 
         JPanel buttons = new JPanel(new BorderLayout(8, 0));
         buttons.setOpaque(false);
-        buttons.add(loadExample, BorderLayout.CENTER);
+        JPanel utilityButtons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        utilityButtons.setOpaque(false);
+        utilityButtons.add(loadExample);
+        utilityButtons.add(clearOutput);
+        buttons.add(utilityButtons, BorderLayout.CENTER);
         buttons.add(runButton, BorderLayout.EAST);
 
         JPanel editorSection = new JPanel(new BorderLayout(0, 8));
@@ -1535,11 +2430,20 @@ public class App {
         vertical.setBorder(null);
         panel.add(vertical, BorderLayout.CENTER);
 
-        JLabel warning = new JLabel("<html>El código se ejecuta localmente y no está aislado.</html>");
+        JLabel warning = new JLabel("<html>Ctrl+Enter ejecuta. El código corre localmente y no está aislado.</html>");
         warning.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         warning.setForeground(MUTED);
         panel.add(warning, BorderLayout.SOUTH);
         return panel;
+    }
+
+    private void updateLineNumbers() {
+        int lineCount = Math.max(1, editor.getLineCount());
+        StringBuilder numbers = new StringBuilder(lineCount * 4);
+        for (int line = 1; line <= lineCount; line++) {
+            numbers.append(line).append('\n');
+        }
+        lineNumbers.setText(numbers.toString());
     }
 
     private void showLesson(int index) {
@@ -1549,7 +2453,7 @@ public class App {
         lessonTitle.setText((index + 1) + ". " + lesson.title);
         explanation.setText("<html><div style='width: 440px; line-height: 145%;'>"
                 + lesson.explanation + "</div></html>");
-        guide.setText(lesson.guide);
+        guide.setText(formatGuideHtml(lesson.guide));
         guide.setCaretPosition(0);
         example.setText(lesson.example);
         example.setCaretPosition(0);
@@ -1563,6 +2467,7 @@ public class App {
     private static int diagramForLesson(String title) {
         return switch (title) {
             case "Tu primer programa" -> 0;
+            case "UML: leer diagramas de clases" -> 16;
             case "Tipos y variables", "Clases envoltorio", "Operadores y conversiones",
                     "Decimales y dinero" -> 1;
             case "Decisiones: if y switch" -> 2;
@@ -1693,42 +2598,82 @@ public class App {
                     ? packageMatcher.group(1) + ".AppStudent"
                     : "AppStudent";
 
-            Process process = new ProcessBuilder(
+            return runCompiledMain(workDirectory, workDirectory, mainClass, outputFile);
+        } finally {
+            deleteTemporaryDirectory(workDirectory);
+        }
+    }
+
+    private static RunResult compileAndRunProject(JavaCompiler compiler, List<Path> sourceFiles,
+            Path projectRoot, String mainClass) throws Exception {
+        Path workDirectory = Files.createTempDirectory("aprende-java-project-");
+        try {
+            Path classesDirectory = Files.createDirectories(workDirectory.resolve("classes"));
+            Path outputFile = workDirectory.resolve("resultado.txt");
+            DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
+            try (var fileManager = compiler.getStandardFileManager(diagnostics, null, StandardCharsets.UTF_8)) {
+                Iterable<? extends JavaFileObject> units = fileManager.getJavaFileObjectsFromFiles(
+                        sourceFiles.stream().map(Path::toFile).toList());
+                boolean compiled = Boolean.TRUE.equals(compiler.getTask(
+                        null,
+                        fileManager,
+                        diagnostics,
+                        List.of("--release", "17", "-encoding", "UTF-8", "-d", classesDirectory.toString()),
+                        null,
+                        units).call());
+                if (!compiled) {
+                    StringBuilder errors = new StringBuilder("No se pudo compilar el proyecto:\n");
+                    for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+                        String sourceName = diagnostic.getSource() == null
+                                ? "Proyecto" : Path.of(diagnostic.getSource().toUri()).getFileName().toString();
+                        errors.append(sourceName).append(": línea ").append(diagnostic.getLineNumber())
+                                .append(": ").append(diagnostic.getMessage(null)).append('\n');
+                    }
+                    return new RunResult(errors.toString(), false, false);
+                }
+            }
+            return runCompiledMain(classesDirectory, projectRoot, mainClass, outputFile);
+        } finally {
+            deleteTemporaryDirectory(workDirectory);
+        }
+    }
+
+    private static RunResult runCompiledMain(Path classDirectory, Path workingDirectory,
+            String mainClass, Path outputFile) throws Exception {
+        Process process = new ProcessBuilder(
                     javaExecutable(),
                     "-Dfile.encoding=UTF-8",
                     "-Dstdout.encoding=UTF-8",
                     "-Dstderr.encoding=UTF-8",
                     "-cp",
-                    workDirectory.toString(),
+                    classDirectory.toString(),
                     mainClass)
+                    .directory(workingDirectory.toFile())
                     .redirectErrorStream(true)
                     .redirectOutput(outputFile.toFile())
                     .start();
-            boolean finished = process.waitFor(Duration.ofSeconds(RUN_TIMEOUT_SECONDS).toMillis(),
-                    TimeUnit.MILLISECONDS);
-            if (!finished) {
-                process.destroyForcibly();
-                process.waitFor();
-            }
-
-            String result = Files.exists(outputFile)
-                    ? new String(Files.readAllBytes(outputFile), StandardCharsets.UTF_8)
-                    : "";
-            if (result.length() > MAX_OUTPUT_CHARACTERS) {
-                result = result.substring(0, MAX_OUTPUT_CHARACTERS) + "\n... (salida recortada)";
-            }
-            if (!finished) {
-                result += "\n\nEl programa se detuvo porque superó el límite de tiempo.";
-            } else if (process.exitValue() != 0) {
-                result += "\nEl programa terminó con código " + process.exitValue() + ".";
-            }
-            if (result.isBlank()) {
-                result = "(El programa terminó sin mostrar texto.)";
-            }
-            return new RunResult(result, finished && process.exitValue() == 0, !finished);
-        } finally {
-            deleteTemporaryDirectory(workDirectory);
+        boolean finished = process.waitFor(Duration.ofSeconds(RUN_TIMEOUT_SECONDS).toMillis(),
+                TimeUnit.MILLISECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            process.waitFor();
         }
+
+        String result = Files.exists(outputFile)
+                ? new String(Files.readAllBytes(outputFile), StandardCharsets.UTF_8)
+                : "";
+        if (result.length() > MAX_OUTPUT_CHARACTERS) {
+            result = result.substring(0, MAX_OUTPUT_CHARACTERS) + "\n... (salida recortada)";
+        }
+        if (!finished) {
+            result += "\n\nEl programa se detuvo porque superó el límite de tiempo.";
+        } else if (process.exitValue() != 0) {
+            result += "\nEl programa terminó con código " + process.exitValue() + ".";
+        }
+        if (result.isBlank()) {
+            result = "(El programa terminó sin mostrar texto.)";
+        }
+        return new RunResult(result, finished && process.exitValue() == 0, !finished);
     }
 
     private static String javaExecutable() {
@@ -1792,6 +2737,7 @@ public class App {
                 case 13 -> drawBuild(g, width, height);
                 case 14 -> drawDate(g, width, height);
                 case 15 -> drawThread(g, width, height);
+                case 16 -> drawUml(g, width, height);
                 default -> drawClassAndObject(g, width, height);
             }
             g.dispose();
@@ -1992,6 +2938,34 @@ public class App {
             centered(g, "Future recibe el resultado después", center, 185);
         }
 
+        private void drawUml(Graphics2D g, int width, int height) {
+            int center = width / 2;
+            int boxWidth = Math.min(205, width - 58);
+            int left = center - boxWidth - 25;
+            int right = center + 25;
+            node(g, left, 45, boxWidth, 100,
+                    "<<interface>> Sonido\n+ emitir(): String",
+                    new Color(225, 236, 252), BLUE);
+            node(g, right, 45, boxWidth, 100,
+                    "Perro\n+ emitir(): String",
+                    new Color(226, 244, 236), GREEN);
+            int targetX = left + boxWidth;
+            g.setColor(new Color(128, 143, 164));
+            g.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER,
+                    10.0f, new float[] {5.0f, 4.0f}, 0.0f));
+            g.drawLine(right, 95, targetX + 10, 95);
+            g.setStroke(new BasicStroke(1.7f));
+            g.setColor(Color.WHITE);
+            g.fillPolygon(new int[] {targetX, targetX + 13, targetX + 13},
+                    new int[] {95, 87, 103}, 3);
+            g.setColor(new Color(128, 143, 164));
+            g.drawPolyline(new int[] {targetX + 13, targetX, targetX + 13},
+                    new int[] {87, 95, 103}, 3);
+            g.setColor(MUTED);
+            centered(g, "<<implements>>", center, 172);
+            centered(g, "+ public    - private    # protected", center, 202);
+        }
+
         private void node(Graphics2D g, int x, int y, int width, int height,
                 String text, Color fill, Color outline) {
             g.setColor(fill);
@@ -2044,6 +3018,88 @@ public class App {
 
         private void centered(Graphics2D g, String text, int centerX, int baseline) {
             g.drawString(text, centerX - g.getFontMetrics().stringWidth(text) / 2, baseline);
+        }
+    }
+
+    private class ProjectEditor extends JPanel {
+        private final Path path;
+        private final JTextArea editor = new JTextArea();
+        private final JTextArea lineNumbers = new JTextArea("1");
+        private boolean dirty;
+
+        private ProjectEditor(Path path, String source) {
+            super(new BorderLayout());
+            this.path = path;
+            editor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+            editor.setTabSize(4);
+            editor.setText(source);
+            lineNumbers.setEditable(false);
+            lineNumbers.setFocusable(false);
+            lineNumbers.setFont(editor.getFont());
+            lineNumbers.setForeground(MUTED);
+            lineNumbers.setBackground(new Color(242, 245, 250));
+            lineNumbers.setColumns(4);
+            lineNumbers.setMargin(new Insets(10, 4, 10, 8));
+            lineNumbers.setBorder(BorderFactory.createMatteBorder(
+                    0, 0, 0, 1, new Color(216, 224, 235)));
+            updateLineNumbers();
+            editor.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                @Override
+                public void insertUpdate(javax.swing.event.DocumentEvent event) {
+                    documentChanged();
+                }
+
+                @Override
+                public void removeUpdate(javax.swing.event.DocumentEvent event) {
+                    documentChanged();
+                }
+
+                @Override
+                public void changedUpdate(javax.swing.event.DocumentEvent event) {
+                    documentChanged();
+                }
+            });
+            JScrollPane scroll = new JScrollPane(editor);
+            scroll.setRowHeaderView(lineNumbers);
+            add(scroll, BorderLayout.CENTER);
+        }
+
+        private void documentChanged() {
+            dirty = true;
+            updateLineNumbers();
+            updateTabTitle();
+        }
+
+        private void updateLineNumbers() {
+            StringBuilder numbers = new StringBuilder();
+            for (int line = 1; line <= Math.max(1, editor.getLineCount()); line++) {
+                numbers.append(line).append('\n');
+            }
+            lineNumbers.setText(numbers.toString());
+        }
+
+        private void updateTabTitle() {
+            int tab = projectEditorTabs.indexOfComponent(this);
+            if (tab >= 0) {
+                projectEditorTabs.setTitleAt(tab,
+                        path.getFileName().toString() + (dirty ? " *" : ""));
+            }
+        }
+    }
+
+    private static class ProjectFileNode extends DefaultMutableTreeNode {
+        private final Path path;
+        private final boolean directory;
+
+        private ProjectFileNode(Path path, boolean directory) {
+            this.path = path;
+            this.directory = directory;
+        }
+
+        @Override
+        public String toString() {
+            Path fileName = path.getFileName();
+            return fileName == null ? path.toString() : fileName.toString();
         }
     }
 
