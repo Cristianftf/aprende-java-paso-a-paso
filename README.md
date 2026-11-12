@@ -32,7 +32,9 @@ Haz doble clic en `iniciar.bat`. El archivo compila el programa y abre la interf
 
 ### Instalador autónomo de Windows
 
-El instalador `dist\AprendeJava-Setup-1.0.0.exe` instala la aplicación con su propio runtime de Java; los estudiantes no necesitan instalar Java por separado. Para generarlo, ejecuta `construir-instalador.bat`. El proceso requiere un JDK 17 o posterior con `jpackage` e Inno Setup 6. Si el JDK no se detecta automáticamente, configura `JAVA_HOME` antes de iniciar la compilación. El instalador es por usuario y crea accesos directos en el menú Inicio y, opcionalmente, en el escritorio.
+El instalador `dist\AprendeJava-Setup-1.0.1.exe` instala la aplicación con su propio runtime y compilador de Java; los estudiantes no necesitan instalar Java ni tener internet para usarla. Para generarlo, ejecuta `construir-instalador.bat`. El proceso requiere un JDK 17 o posterior con `jpackage` e Inno Setup 6. Si el JDK no se detecta automáticamente, configura `JAVA_HOME` antes de iniciar la compilación. El instalador es por usuario y crea accesos directos en el menú Inicio y, opcionalmente, en el escritorio.
+
+Esta versión está preparada para Windows x64; el instalador bloquea Windows de 32 bits y ARM64 porque el runtime incluido es x64. La compatibilidad garantizada depende de la versión de Windows admitida por el JDK con el que se generó el paquete. El instalador no está firmado digitalmente, por lo que Windows puede mostrar un aviso de editor desconocido.
 
 La ventana organiza los **temas a la izquierda**, el **editor y su resultado en el centro** y la **explicación a la derecha**. En cada tema, consulta la guía paso a paso y revisa las pestañas **Ilustración** y **Ejemplo**. El editor muestra números de línea. Usa **Restaurar ejemplo** para volver al programa inicial, **Limpiar salida** para borrar el resultado y **Ejecutar código** o **Ctrl+Enter** para compilar y ejecutar. Luego cambia un valor o condición y compara la salida; usa la pregunta del tema para repasar. El editor compila con Java 17 y admite ejemplos con declaración de paquete.
 

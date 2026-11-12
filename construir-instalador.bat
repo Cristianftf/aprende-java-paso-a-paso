@@ -60,13 +60,13 @@ if errorlevel 1 (
 "%JAVA_HOME%\bin\jpackage.exe" ^
     --type app-image ^
     --name AprendeJava ^
-    --app-version 1.0.0 ^
+    --app-version 1.0.1 ^
     --vendor "Aprende Java" ^
     --description "Curso interactivo de Java en espanol" ^
     --input build\package-input ^
     --main-jar AprendeJava.jar ^
     --main-class App ^
-    --add-modules java.desktop,jdk.compiler ^
+    --add-modules java.desktop,java.logging,jdk.compiler ^
     --dest build\image
 if errorlevel 1 (
     echo No se pudo preparar la aplicacion con su runtime de Java.
@@ -89,6 +89,6 @@ if errorlevel 1 (
 )
 
 echo.
-echo Instalador creado en dist\AprendeJava-Setup-1.0.0.exe
-echo Incluye su propio runtime de Java; el estudiante no necesita instalar Java aparte.
+echo Instalador creado en dist\AprendeJava-Setup-1.0.1.exe
+echo Incluye su propio runtime y compilador de Java; no requiere Java instalado.
 pause
